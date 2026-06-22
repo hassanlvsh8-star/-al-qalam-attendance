@@ -96,6 +96,23 @@ async function seedDefaults(client: Client) {
     await client.execute({ sql: 'INSERT INTO teachers (username, password_hash) VALUES (?, ?)', args: ['teacher', hash] });
   }
 
+  // Ensure all Al-Qalam classes exist (INSERT OR IGNORE = safe to run every time)
+  const alQalamClasses = [
+    'Year 1 AM Brothers', 'Year 1 AM Sisters',
+    'Year 2 AM Brothers', 'Year 2 AM Sisters',
+    'Year 3 AM Brothers', 'Year 3 AM Sisters',
+    'Year 4 AM Brothers', 'Year 4 AM Sisters',
+    'Year 5 AM Brothers', 'Year 5 AM Sisters',
+    'Year 1 PM Brothers', 'Year 1 PM Sisters',
+    'Year 2 PM Brothers', 'Year 2 PM Sisters',
+    'Year 3 PM Brothers', 'Year 3 PM Sisters',
+    'Year 4 PM Brothers', 'Year 4 PM Sisters',
+    'Year 5 PM Brothers', 'Year 5 PM Sisters',
+  ];
+  for (const name of alQalamClasses) {
+    await client.execute({ sql: 'INSERT OR IGNORE INTO classes (name) VALUES (?)', args: [name] });
+  }
+
   const classCount = await client.execute({ sql: 'SELECT COUNT(*) as c FROM classes', args: [] });
   if ((classCount.rows[0] as unknown as { c: number }).c === 0) {
     await client.execute({ sql: "INSERT INTO classes (name) VALUES ('Class 5A')", args: [] });
