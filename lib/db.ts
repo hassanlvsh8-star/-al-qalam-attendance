@@ -96,6 +96,22 @@ async function seedDefaults(client: Client) {
     await client.execute({ sql: 'INSERT INTO teachers (username, password_hash) VALUES (?, ?)', args: ['teacher', hash] });
   }
 
+  // Remove legacy seed classes and their students/attendance
+  const legacyClasses = ['Class 5A', 'Class 6B', 'Class 7C'];
+  for (const name of legacyClasses) {
+    const row = await client.execute({ sql: 'SELECT id FROM classes WHERE name = ?', args: [name] });
+    if (row.rows.length > 0) {
+      const id = (row.rows[0] as unknown as { id: number }).id;
+      const students = await client.execute({ sql: 'SELECT id FROM students WHERE class_id = ?', args: [id] });
+      for (const s of students.rows as unknown as { id: number }[]) {
+        await client.execute({ sql: 'DELETE FROM attendance WHERE student_id = ?', args: [s.id] });
+        await client.execute({ sql: 'DELETE FROM push_subscriptions WHERE student_id = ?', args: [s.id] });
+        await client.execute({ sql: 'DELETE FROM students WHERE id = ?', args: [s.id] });
+      }
+      await client.execute({ sql: 'DELETE FROM classes WHERE id = ?', args: [id] });
+    }
+  }
+
   // Ensure all Al-Qalam classes exist (INSERT OR IGNORE = safe to run every time)
   const alQalamClasses = [
     'Year 1 AM Brothers', 'Year 1 AM Sisters',
@@ -113,57 +129,6 @@ async function seedDefaults(client: Client) {
     await client.execute({ sql: 'INSERT OR IGNORE INTO classes (name) VALUES (?)', args: [name] });
   }
 
-  const classCount = await client.execute({ sql: 'SELECT COUNT(*) as c FROM classes', args: [] });
-  if ((classCount.rows[0] as unknown as { c: number }).c === 0) {
-    await client.execute({ sql: "INSERT INTO classes (name) VALUES ('Class 5A')", args: [] });
-    await client.execute({ sql: "INSERT INTO classes (name) VALUES ('Class 6B')", args: [] });
-    await client.execute({ sql: "INSERT INTO classes (name) VALUES ('Class 7C')", args: [] });
-
-    const class5A = await client.execute({ sql: "SELECT id FROM classes WHERE name = 'Class 5A'", args: [] });
-    const class6B = await client.execute({ sql: "SELECT id FROM classes WHERE name = 'Class 6B'", args: [] });
-    const id5A = (class5A.rows[0] as unknown as { id: number }).id;
-    const id6B = (class6B.rows[0] as unknown as { id: number }).id;
-
-    const defaultPw = bcrypt.hashSync('student123', 10);
-    const students = [
-      { num: '1001', name: 'Aisha Rahman', classId: id5A },
-      { num: '1002', name: 'Yusuf Ali', classId: id5A },
-      { num: '1003', name: 'Fatima Hassan', classId: id5A },
-      { num: '1004', name: 'Ibrahim Malik', classId: id5A },
-      { num: '1005', name: 'Khadija Patel', classId: id5A },
-      { num: '2001', name: 'Omar Siddiqui', classId: id6B },
-      { num: '2002', name: 'Zainab Khan', classId: id6B },
-      { num: '2003', name: 'Hassan Ahmed', classId: id6B },
-      { num: '2004', name: 'Maryam Hussain', classId: id6B },
-    ];
-    for (const s of students) {
-      await client.execute({
-        sql: 'INSERT INTO students (student_number, name, password_hash, class_id) VALUES (?, ?, ?, ?)',
-        args: [s.num, s.name, defaultPw, s.classId],
-      });
-    }
-
-    const today = new Date();
-    const dates: string[] = [];
-    const d = new Date(today);
-    while (dates.length < 5) {
-      d.setDate(d.getDate() - 1);
-      const day = d.getDay();
-      if (day !== 0 && day !== 6) dates.push(d.toISOString().slice(0, 10));
-    }
-
-    const allStudents = await client.execute({ sql: 'SELECT id FROM students', args: [] });
-    const statuses = ['present', 'present', 'present', 'present', 'absent'] as const;
-    for (const date of dates) {
-      for (const st of allStudents.rows as unknown as { id: number }[]) {
-        const status = statuses[Math.floor(Math.random() * statuses.length)];
-        await client.execute({
-          sql: 'INSERT OR IGNORE INTO attendance (student_id, date, status, marked_by) VALUES (?, ?, ?, ?)',
-          args: [st.id, date, status, 'teacher'],
-        });
-      }
-    }
-  }
 }
 
 // ─── Query helpers ────────────────────────────────────────────────────────────
