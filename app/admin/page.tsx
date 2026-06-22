@@ -1,25 +1,26 @@
-import { getDb } from '@/lib/db';
+import { db } from '@/lib/db';
 import Link from 'next/link';
 
-export default function AdminDashboard() {
-  const db = getDb();
-  const classCount = (db.prepare('SELECT COUNT(*) as c FROM classes').get() as { c: number }).c;
-  const studentCount = (db.prepare('SELECT COUNT(*) as c FROM students WHERE active = 1').get() as { c: number }).c;
+export default async function AdminDashboard() {
   const todayDate = new Date().toISOString().slice(0, 10);
-  const todayMarked = (db.prepare('SELECT COUNT(DISTINCT student_id) as c FROM attendance WHERE date = ?').get(todayDate) as { c: number }).c;
-  const totalRecords = (db.prepare('SELECT COUNT(*) as c FROM attendance').get() as { c: number }).c;
 
-  const recentAttendance = db.prepare(`
-    SELECT a.date, c.name as class_name,
-           COUNT(*) as total,
-           SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present
-    FROM attendance a
-    JOIN students s ON a.student_id = s.id
-    JOIN classes c ON s.class_id = c.id
-    GROUP BY a.date, s.class_id
-    ORDER BY a.date DESC, c.name
-    LIMIT 10
-  `).all() as { date: string; class_name: string; total: number; present: number }[];
+  const [classCount, studentCount, todayMarked, totalRecords, recentAttendance] = await Promise.all([
+    db.get<{ c: number }>('SELECT COUNT(*) as c FROM classes'),
+    db.get<{ c: number }>('SELECT COUNT(*) as c FROM students WHERE active = 1'),
+    db.get<{ c: number }>('SELECT COUNT(DISTINCT student_id) as c FROM attendance WHERE date = ?', [todayDate]),
+    db.get<{ c: number }>('SELECT COUNT(*) as c FROM attendance'),
+    db.all<{ date: string; class_name: string; total: number; present: number }>(`
+      SELECT a.date, c.name as class_name,
+             COUNT(*) as total,
+             SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present
+      FROM attendance a
+      JOIN students s ON a.student_id = s.id
+      JOIN classes c ON s.class_id = c.id
+      GROUP BY a.date, s.class_id
+      ORDER BY a.date DESC, c.name
+      LIMIT 10
+    `),
+  ]);
 
   return (
     <div>
@@ -28,10 +29,10 @@ export default function AdminDashboard() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[
-          { label: 'Classes', value: classCount, color: '#1B2F5E' },
-          { label: 'Active Students', value: studentCount, color: '#1B2F5E' },
-          { label: 'Marked Today', value: todayMarked, color: '#C9973A' },
-          { label: 'Total Records', value: totalRecords, color: '#1B2F5E' },
+          { label: 'Classes', value: classCount?.c ?? 0, color: '#1B2F5E' },
+          { label: 'Active Students', value: studentCount?.c ?? 0, color: '#1B2F5E' },
+          { label: 'Marked Today', value: todayMarked?.c ?? 0, color: '#C9973A' },
+          { label: 'Total Records', value: totalRecords?.c ?? 0, color: '#1B2F5E' },
         ].map(stat => (
           <div key={stat.label} className="bg-white rounded-xl shadow-sm p-5 border-l-4"
             style={{ borderLeftColor: stat.color }}>
