@@ -24,9 +24,14 @@ export async function GET(req: NextRequest) {
 
   const students = await getStudentsByClass(class_id);
   const existing = await getAttendanceForClassDate(class_id, date);
-  const statusMap = Object.fromEntries(existing.map(r => [r.student_id, r.status]));
+  const statusMap = Object.fromEntries(existing.map(r => [r.student_id, { status: r.status, lessons_missed: r.lessons_missed, notes: r.notes }]));
 
-  return NextResponse.json(students.map(s => ({ ...s, status: statusMap[s.id] || null })));
+  return NextResponse.json(students.map(s => ({
+    ...s,
+    status: statusMap[s.id]?.status || null,
+    lessons_missed: statusMap[s.id]?.lessons_missed ?? null,
+    notes: statusMap[s.id]?.notes ?? null,
+  })));
 }
 
 export async function POST(req: NextRequest) {
@@ -44,9 +49,10 @@ export async function POST(req: NextRequest) {
 
   const markedBy = session.username || 'teacher';
 
-  for (const { student_id, status } of records) {
-    if (!['present', 'absent', 'late', 'excused'].includes(status)) continue;
-    await upsertAttendance(student_id, date, status, markedBy);
+  const validStatuses = ['present', 'absent', 'late', 'excused', 'camera_off', 'mic_off'];
+  for (const { student_id, status, lessons_missed, notes } of records) {
+    if (!validStatuses.includes(status)) continue;
+    await upsertAttendance(student_id, date, status, markedBy, status === 'absent' ? (lessons_missed ?? null) : null, notes ?? null);
   }
 
   const notifyStatuses = new Set(['absent', 'late']);

@@ -66,10 +66,18 @@ async function ensureSchema() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       student_id INTEGER NOT NULL REFERENCES students(id),
       date TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('present','absent','late','excused')),
+      status TEXT NOT NULL,
       marked_by TEXT NOT NULL,
       timestamp TEXT DEFAULT (datetime('now')),
       UNIQUE(student_id, date)
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id INTEGER NOT NULL REFERENCES students(id),
+      sent_by TEXT NOT NULL,
+      body TEXT NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +87,16 @@ async function ensureSchema() {
       UNIQUE(student_id)
     );
   `);
+
+  // Migrations: add new columns if missing
+  const tableInfo = await client.execute({ sql: 'PRAGMA table_info(attendance)', args: [] });
+  const cols = (tableInfo.rows as unknown as { name: string }[]).map(r => r.name);
+  if (!cols.includes('lessons_missed')) {
+    await client.execute({ sql: 'ALTER TABLE attendance ADD COLUMN lessons_missed INTEGER DEFAULT NULL', args: [] });
+  }
+  if (!cols.includes('notes')) {
+    await client.execute({ sql: 'ALTER TABLE attendance ADD COLUMN notes TEXT DEFAULT NULL', args: [] });
+  }
 
   await seedDefaults(client);
 }
@@ -176,19 +194,19 @@ export async function getNextStudentNumber() {
 }
 
 export async function getAttendanceForClassDate(class_id: number, date: string) {
-  return db.all<{ student_id: number; status: string }>(
-    `SELECT a.student_id, a.status FROM attendance a
+  return db.all<{ student_id: number; status: string; lessons_missed: number | null; notes: string | null }>(
+    `SELECT a.student_id, a.status, a.lessons_missed, a.notes FROM attendance a
      JOIN students s ON a.student_id = s.id
      WHERE s.class_id = ? AND a.date = ? AND s.active = 1`,
     [class_id, date]
   );
 }
 
-export async function upsertAttendance(student_id: number, date: string, status: string, marked_by: string) {
+export async function upsertAttendance(student_id: number, date: string, status: string, marked_by: string, lessons_missed?: number | null, notes?: string | null) {
   await db.run(
-    `INSERT INTO attendance (student_id, date, status, marked_by) VALUES (?, ?, ?, ?)
-     ON CONFLICT(student_id, date) DO UPDATE SET status = excluded.status, marked_by = excluded.marked_by, timestamp = datetime('now')`,
-    [student_id, date, status, marked_by]
+    `INSERT INTO attendance (student_id, date, status, lessons_missed, notes, marked_by) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(student_id, date) DO UPDATE SET status = excluded.status, lessons_missed = excluded.lessons_missed, notes = excluded.notes, marked_by = excluded.marked_by, timestamp = datetime('now')`,
+    [student_id, date, status, lessons_missed ?? null, notes ?? null, marked_by]
   );
 }
 
@@ -209,6 +227,24 @@ export async function getPushSubscription(student_id: number): Promise<string | 
     'SELECT subscription FROM push_subscriptions WHERE student_id = ?', [student_id]
   );
   return row?.subscription ?? null;
+}
+
+export async function saveMessage(student_id: number, sent_by: string, body: string) {
+  await db.run(
+    'INSERT INTO messages (student_id, sent_by, body) VALUES (?, ?, ?)',
+    [student_id, sent_by, body]
+  );
+}
+
+export async function getMessagesForStudent(student_id: number) {
+  return db.all<{ id: number; sent_by: string; body: string; read: number; created_at: string }>(
+    'SELECT id, sent_by, body, read, created_at FROM messages WHERE student_id = ? ORDER BY created_at DESC',
+    [student_id]
+  );
+}
+
+export async function markMessagesRead(student_id: number) {
+  await db.run('UPDATE messages SET read = 1 WHERE student_id = ? AND read = 0', [student_id]);
 }
 
 export async function getStudentAttendance(student_id: number) {

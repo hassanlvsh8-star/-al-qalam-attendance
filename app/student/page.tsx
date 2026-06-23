@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 
 interface AttendanceRecord { date: string; status: string }
 interface Stats { total: number; present: number; percentage: number | null }
+interface Message { id: number; sent_by: string; body: string; read: number; created_at: string }
 
 interface WeekGroup {
   label: string;      // e.g. "16 Jun – 20 Jun"
@@ -105,6 +106,24 @@ export default function StudentDashboard() {
   const [weekGroups, setWeekGroups] = useState<WeekGroup[]>([]);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
 
+  // Messages state
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [showMessages, setShowMessages] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/student/messages').then(r => r.ok ? r.json() : []).then(setMessages);
+  }, []);
+
+  const unreadCount = messages.filter(m => m.read === 0).length;
+
+  function openMessages() {
+    setShowMessages(true);
+    if (unreadCount > 0) {
+      fetch('/api/student/messages', { method: 'POST' });
+      setMessages(msgs => msgs.map(m => ({ ...m, read: 1 })));
+    }
+  }
+
   // Push notification state
   const [pushSupported, setPushSupported] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -189,13 +208,69 @@ export default function StudentDashboard() {
       <h2 className="text-xl font-bold text-gray-800 mb-1">My Attendance</h2>
       {className && <p className="text-sm text-gray-500 mb-6">{className}</p>}
 
+      {/* Teacher messages inbox */}
+      {messages.length > 0 && (
+        <div className="mb-6">
+          <button
+            onClick={openMessages}
+            className="w-full rounded-2xl border p-4 flex items-center gap-4 text-left transition-colors"
+            style={{ background: unreadCount > 0 ? '#eff6ff' : '#f9fafb', borderColor: unreadCount > 0 ? '#bfdbfe' : '#e5e7eb' }}>
+            <span className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: unreadCount > 0 ? '#dbeafe' : '#e5e7eb' }}>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5" style={{ color: unreadCount > 0 ? '#1d4ed8' : '#6b7280' }}>
+                <path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 0 0 6 21.75a6.721 6.721 0 0 0 3.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 0 1-.814 1.686.75.75 0 0 0 .44 1.223Z" clipRule="evenodd" />
+              </svg>
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                Messages from Teacher
+                {unreadCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold text-white" style={{ background: '#1B2F5E' }}>
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5 truncate">
+                {messages[0].body}
+              </div>
+            </div>
+            <span className="text-gray-400 text-sm">{showMessages ? '▲' : '▼'}</span>
+          </button>
+
+          {showMessages && (
+            <div className="mt-2 rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden divide-y divide-gray-50">
+              {messages.map(msg => (
+                <div key={msg.id} className="px-5 py-4" style={{ background: msg.read === 0 ? '#eff6ff' : 'white' }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-gray-500">{msg.sent_by}</span>
+                    <span className="text-xs text-gray-300">
+                      {new Date(msg.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Push notification opt-in banner */}
       {pushSupported && (
         <div className="mb-6 rounded-2xl border p-4 flex items-center gap-4"
           style={pushEnabled
             ? { background: '#f0fdf4', borderColor: '#bbf7d0' }
             : { background: '#fefce8', borderColor: '#fde68a' }}>
-          <span className="text-2xl flex-shrink-0">{pushEnabled ? '🔔' : '🔕'}</span>
+          <span className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: pushEnabled ? '#dcfce7' : '#fef9c3' }}>
+            {pushEnabled ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5" style={{ color: '#16a34a' }}>
+                <path fillRule="evenodd" d="M5.25 9a6.75 6.75 0 0 1 13.5 0v.75c0 2.123.8 4.057 2.118 5.52a.75.75 0 0 1-.297 1.206c-1.544.57-3.16.99-4.831 1.243a3.75 3.75 0 1 1-7.48 0 24.585 24.585 0 0 1-4.831-1.244.75.75 0 0 1-.298-1.205A8.217 8.217 0 0 0 5.25 9.75V9Zm4.502 8.9a2.25 2.25 0 1 0 4.496 0 25.057 25.057 0 0 1-4.496 0Z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5" style={{ color: '#ca8a04' }}>
+                <path d="M3.53 2.47a.75.75 0 0 0-1.06 1.06l18 18a.75.75 0 1 0 1.06-1.06l-18-18ZM20.57 16.476c-.223.082-.448.161-.674.238L7.319 4.137A6.75 6.75 0 0 1 18.75 9v.75c0 2.123.8 4.057 2.118 5.52a.75.75 0 0 1-.297 1.206ZM5.25 9c0-.35.026-.694.075-1.032L4.28 6.92a8.25 8.25 0 0 0-.28 2.13v.75a8.217 8.217 0 0 1-2.118 5.52.75.75 0 0 0 .297 1.206c.758.28 1.543.519 2.35.715a3.75 3.75 0 0 0 7.48 0 24.583 24.583 0 0 0 2.102-.471L5.25 9.75V9Z" />
+              </svg>
+            )}
+          </span>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-gray-800 text-sm">
               {pushEnabled ? 'Absence notifications are on' : 'Get notified when marked absent'}
